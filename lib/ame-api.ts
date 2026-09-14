@@ -63,6 +63,50 @@ export type DashboardSummary = {
   jadwalTerdekat: AmeEvent[]
 }
 
+export type InputTransaksiMeta = {
+  rekening: string[]
+  pendapatanBeban: string[]
+  jenisTransaksi: string[]
+  vendor: string[]
+}
+
+export type InputTransaksiItem = {
+  row: number
+  tanggal: string
+  inOut: 'Cash In' | 'Cash Out' | string
+  rekening: string
+  pendapatanBeban: string
+  referensi: string
+  jenisPembayaran: string
+  jenisTransaksi: string
+  vendor: string
+  dpPelunasan: string
+  noPo: string
+  keterangan: string
+  noRekening: string
+  adminBank: string
+  nominal: number
+  jumlah: number
+  jurnal: string
+}
+
+export type NewInputTransaksi = {
+  tanggal: string // yyyy-MM-dd
+  inOut: 'Cash In' | 'Cash Out'
+  rekening: string
+  pendapatanBeban: string
+  referensi?: string
+  jenisPembayaran?: string
+  jenisTransaksi: string
+  vendor?: string
+  dpPelunasan?: string
+  noPo?: string
+  keterangan: string
+  noRekening?: string
+  nominal: number
+  biayaAdmin?: number
+}
+
 function assertBaseUrl() {
   if (!BASE_URL) {
     throw new Error(
@@ -123,6 +167,21 @@ export async function uploadAttachment(spkId: string, docType: DocType, file: Fi
     mimeType: file.type || 'application/octet-stream',
     base64Data
   })
+}
+
+/** Nilai unik (Rekening, Pendapatan/Beban, dst) untuk mengisi dropdown form. */
+export function getInputTransaksiMeta() {
+  return ameGet<{ ok: true } & InputTransaksiMeta>('inputTransaksiMeta', {})
+}
+
+/** Daftar transaksi pada satu bulan, terbaru lebih dulu. */
+export function getInputTransaksiList(year: number, month: number) {
+  return ameGet<{ ok: true; items: InputTransaksiItem[] }>('inputTransaksiList', { year, month })
+}
+
+/** Menambah satu baris transaksi baru ke sheet "Input Transaksi". */
+export function addInputTransaksi(payload: NewInputTransaksi) {
+  return amePost<{ ok: true; row: number }>('addInputTransaksi', payload)
 }
 
 function fileToBase64(file: File): Promise<string> {
