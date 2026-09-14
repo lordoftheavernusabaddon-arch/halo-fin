@@ -3,12 +3,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Bell, CalendarDays, ChevronLeft, ChevronRight, CircleDollarSign, FileText, LayoutDashboard, Menu, Paperclip, Settings, TrendingUp, Upload, Wallet, X } from 'lucide-react'
 import {
+  addInputTransaksi,
   getCalendarData,
   getDashboardSummary,
+  getInputTransaksiList,
+  getInputTransaksiMeta,
   getSpkDetail,
   uploadAttachment,
   type AmeEvent,
   type DocType,
+  type InputTransaksiItem,
+  type InputTransaksiMeta,
   type SpkDetail,
 } from '@/lib/ame-api'
 
@@ -72,6 +77,10 @@ export default function Page() {
   }, [year, monthNum])
 
   useEffect(() => { loadData() }, [loadData])
+
+  const handlePrevMonth = () => setMonth(new Date(year, month.getMonth() - 1, 1))
+  const handleNextMonth = () => setMonth(new Date(year, month.getMonth() + 1, 1))
+  const handleToday = () => setMonth(new Date())
 
   const calendarDays = (() => {
     const start = new Date(year, month.getMonth(), 1).getDay()
@@ -142,9 +151,9 @@ export default function Page() {
                   <div className="card-heading">
                     <div><p className="eyebrow">Payment tracker</p><h2>Kalender pembayaran</h2></div>
                     <div className="calendar-controls">
-                      <button className="small-btn" onClick={() => setMonth(new Date(year, month.getMonth() - 1, 1))}><ChevronLeft size={16} /></button>
-                      <button className="today-btn" onClick={() => setMonth(new Date())}>Hari ini</button>
-                      <button className="small-btn" onClick={() => setMonth(new Date(year, month.getMonth() + 1, 1))}><ChevronRight size={16} /></button>
+                      <button className="small-btn" onClick={handlePrevMonth}><ChevronLeft size={16} /></button>
+                      <button className="today-btn" onClick={handleToday}>Hari ini</button>
+                      <button className="small-btn" onClick={handleNextMonth}><ChevronRight size={16} /></button>
                     </div>
                   </div>
                   <div className="month-title">{monthLabel}</div>
@@ -189,6 +198,15 @@ export default function Page() {
                 </div>
               </section>
             </>
+          ) : active === 'Pusat Kontrol Input Transaksi' ? (
+            <InputTransaksiPanel
+              year={year}
+              month={monthNum}
+              monthLabel={monthLabel}
+              onPrev={handlePrevMonth}
+              onNext={handleNextMonth}
+              onToday={handleToday}
+            />
           ) : (
             <EmptyState title={active} />
           )}
@@ -208,6 +226,176 @@ export default function Page() {
 
 function Metric({ icon, label, value, tone, trend }: { icon: React.ReactNode; label: string; value: string; tone: string; trend: string }) {
   return <div className="metric-card"><div className={`metric-icon ${tone}`}>{icon}</div><div><span>{label}</span><strong>{value}</strong><small>{trend}</small></div></div>
+}
+
+function InputTransaksiPanel({
+  year, month, monthLabel, onPrev, onNext, onToday,
+}: { year: number; month: number; monthLabel: string; onPrev: () => void; onNext: () => void; onToday: () => void }) {
+  const [meta, setMeta] = useState<InputTransaksiMeta | null>(null)
+  const [items, setItems] = useState<InputTransaksiItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const emptyForm = {
+    tanggal: new Date().toISOString().slice(0, 10),
+    inOut: 'Cash Out' as 'Cash In' | 'Cash Out',
+    rekening: '', pendapatanBeban: '', jenisTransaksi: '', vendor: '',
+    keterangan: '', nominal: '', biayaAdmin: '', referensi: '', noPo: '',
+  }
+  const [form, setForm] = useState(emptyForm)
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [submitOk, setSubmitOk] = useState(false)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    setError(null)
+    Promise.all([getInputTransaksiMeta(), getInputTransaksiList(year, month)])
+      .then(([m, l]) => { setMeta(m); setItems(l.items) })
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setLoading(false))
+  }, [year, month])
+
+  useEffect(() => { load() }, [load])
+
+  const totals = items.reduce(
+    (acc, it) => { if (it.inOut === 'Cash In') acc.in += it.jumlah; else acc.out += it.jumlah; return acc },
+    { in: 0, out: 0 }
+  )
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!form.rekening || !form.pendapatanBeban || !form.jenisTransaksi || !form.keterangan || !form.nominal) {
+      setSubmitError('Rekening, Pendapatan/Beban, Jenis transaksi, Keterangan, dan Nominal wajib diisi.')
+      return
+    }
+    setSubmitting(true)
+    setSubmitError(null)
+    setSubmitOk(false)
+    addInputTransaksi({
+      tanggal: form.tanggal,
+      inOut: form.inOut,
+      rekening: form.rekening,
+      pendapatanBeban: form.pendapatanBeban,
+      jenisTransaksi: form.jenisTransaksi,
+      vendor: form.vendor || undefined,
+      keterangan: form.keterangan,
+      nominal: Number(form.nominal),
+      biayaAdmin: form.biayaAdmin ? Number(form.biayaAdmin) : undefined,
+      referensi: form.referensi || undefined,
+      noPo: form.noPo || undefined,
+    })
+      .then(() => {
+        setSubmitOk(true)
+        setForm({ ...emptyForm, rekening: form.rekening }) // Rekening biasanya sama untuk input berturut-turut
+        load()
+      })
+      .catch((err: Error) => setSubmitError(err.message))
+      .finally(() => setSubmitting(false))
+  }
+
+  return (
+    <div className="dashboard-grid" style={{ gridTemplateColumns: 'minmax(0,.9fr) minmax(0,1.4fr)' }}>
+      <div className="card tracker-card">
+        <div className="card-heading"><div><p className="eyebrow">Transaksi baru</p><h2>Catat Cash In / Cash Out</h2></div></div>
+        <form className="form-grid" onSubmit={handleSubmit} style={{ marginTop: 14 }}>
+          <label className="form-field">
+            <span>Tanggal</span>
+            <input type="date" value={form.tanggal} onChange={(e) => setForm({ ...form, tanggal: e.target.value })} required />
+          </label>
+          <label className="form-field">
+            <span>Arus kas</span>
+            <select value={form.inOut} onChange={(e) => setForm({ ...form, inOut: e.target.value as 'Cash In' | 'Cash Out' })}>
+              <option value="Cash Out">Cash Out</option>
+              <option value="Cash In">Cash In</option>
+            </select>
+          </label>
+          <label className="form-field">
+            <span>Rekening</span>
+            <input list="rekening-options" value={form.rekening} onChange={(e) => setForm({ ...form, rekening: e.target.value })} placeholder="mis. Kumoro" required />
+            <datalist id="rekening-options">{meta?.rekening.map((v) => <option key={v} value={v} />)}</datalist>
+          </label>
+          <label className="form-field">
+            <span>Pendapatan / Beban</span>
+            <input list="pb-options" value={form.pendapatanBeban} onChange={(e) => setForm({ ...form, pendapatanBeban: e.target.value })} placeholder="mis. Selling & Marketing Expense" required />
+            <datalist id="pb-options">{meta?.pendapatanBeban.map((v) => <option key={v} value={v} />)}</datalist>
+          </label>
+          <label className="form-field">
+            <span>Jenis transaksi</span>
+            <input list="jt-options" value={form.jenisTransaksi} onChange={(e) => setForm({ ...form, jenisTransaksi: e.target.value })} placeholder="mis. Event" required />
+            <datalist id="jt-options">{meta?.jenisTransaksi.map((v) => <option key={v} value={v} />)}</datalist>
+          </label>
+          <label className="form-field">
+            <span>Vendor (opsional)</span>
+            <input list="vendor-options" value={form.vendor} onChange={(e) => setForm({ ...form, vendor: e.target.value })} placeholder="-" />
+            <datalist id="vendor-options">{meta?.vendor.map((v) => <option key={v} value={v} />)}</datalist>
+          </label>
+          <label className="form-field form-field-wide">
+            <span>Keterangan</span>
+            <input value={form.keterangan} onChange={(e) => setForm({ ...form, keterangan: e.target.value })} placeholder="Deskripsi singkat transaksi" required />
+          </label>
+          <label className="form-field">
+            <span>Nominal (Rp)</span>
+            <input type="number" min="0" value={form.nominal} onChange={(e) => setForm({ ...form, nominal: e.target.value })} required />
+          </label>
+          <label className="form-field">
+            <span>Biaya admin bank (opsional)</span>
+            <input type="number" min="0" value={form.biayaAdmin} onChange={(e) => setForm({ ...form, biayaAdmin: e.target.value })} placeholder="0" />
+          </label>
+          <label className="form-field">
+            <span>No. PO (opsional)</span>
+            <input value={form.noPo} onChange={(e) => setForm({ ...form, noPo: e.target.value })} />
+          </label>
+          <label className="form-field">
+            <span>Referensi (opsional)</span>
+            <input value={form.referensi} onChange={(e) => setForm({ ...form, referensi: e.target.value })} />
+          </label>
+          {submitError && <p className="detail-note" style={{ color: '#d44c47', gridColumn: '1 / -1' }}>{submitError}</p>}
+          {submitOk && <p className="detail-note" style={{ color: '#448361', gridColumn: '1 / -1' }}>Transaksi tersimpan ke sheet.</p>}
+          <button className="sync-btn" type="submit" disabled={submitting} style={{ gridColumn: '1 / -1', justifyContent: 'center' }}>
+            {submitting ? 'Menyimpan…' : 'Simpan transaksi'}
+          </button>
+        </form>
+      </div>
+
+      <div className="card tracker-card">
+        <div className="card-heading">
+          <div><p className="eyebrow">Riwayat</p><h2>Transaksi bulan ini</h2></div>
+          <div className="calendar-controls">
+            <button className="small-btn" onClick={onPrev}><ChevronLeft size={16} /></button>
+            <button className="today-btn" onClick={onToday}>Hari ini</button>
+            <button className="small-btn" onClick={onNext}><ChevronRight size={16} /></button>
+          </div>
+        </div>
+        <div className="month-title">{monthLabel}</div>
+
+        <div className="metric-grid" style={{ gridTemplateColumns: 'repeat(2,1fr)', marginBottom: 14 }}>
+          <div className="metric-card"><div className="metric-icon green"><TrendingUp /></div><div><span>Cash In</span><strong>{format(totals.in)}</strong></div></div>
+          <div className="metric-card"><div className="metric-icon rose"><Wallet /></div><div><span>Cash Out</span><strong>{format(totals.out)}</strong></div></div>
+        </div>
+
+        {error && <p className="detail-note" style={{ color: '#d44c47' }}>Gagal memuat: {error}</p>}
+        {loading ? (
+          <p className="detail-note">Memuat transaksi…</p>
+        ) : items.length === 0 ? (
+          <p className="detail-note">Belum ada transaksi tercatat bulan ini.</p>
+        ) : (
+          <div className="tx-list">
+            {items.map((it) => (
+              <div className="tx-row" key={it.row}>
+                <div className={`tx-flow ${it.inOut === 'Cash In' ? 'in' : 'out'}`}>{it.inOut === 'Cash In' ? '+' : '\u2212'}</div>
+                <div className="tx-copy">
+                  <b>{it.keterangan || it.jenisTransaksi}</b>
+                  <small>{new Date(it.tanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })} · {it.rekening} · {it.pendapatanBeban}</small>
+                </div>
+                <strong className={it.inOut === 'Cash In' ? 'tx-amount in' : 'tx-amount out'}>{format(it.jumlah)}</strong>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function EmptyState({ title }: { title: string }) {
